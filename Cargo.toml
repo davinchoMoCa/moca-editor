@@ -1,0 +1,12 @@
+[package]
+name = "moca-editor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.36.2"
+egui = "0.36.2"
+egui_extras = { version = "0.36.2", features = ["syntect"] }
+fuzzy-matcher = "0.3.7"
+ignore = "0.4.33"
+rfd = "0.17.2"
