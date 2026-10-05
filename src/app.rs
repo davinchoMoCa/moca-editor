@@ -14,6 +14,7 @@ const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
 const CLOSE_TAB: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::W);
 const QUICK_OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::P);
 const FIND: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);
+const OPEN_TERMINAL: KeyboardShortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Backtick);
 
 pub struct MocaEditor {
     docs: Vec<Document>,
@@ -86,6 +87,28 @@ impl MocaEditor {
         }
     }
 
+    /// Abre Terminal.app en la raíz del proyecto; si no hay carpeta abierta,
+    /// en la carpeta del archivo activo.
+    fn open_terminal(&mut self) {
+        let dir: Option<PathBuf> = self
+            .file_tree
+            .root()
+            .map(Path::to_path_buf)
+            .or_else(|| self.docs[self.active].path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)));
+        let Some(dir) = dir else {
+            self.status = "Abre una carpeta primero (⇧⌘O)".to_string();
+            return;
+        };
+        match std::process::Command::new("open")
+            .args(["-a", "Terminal"])
+            .arg(&dir)
+            .spawn()
+        {
+            Ok(_) => self.status = format!("Terminal abierta en {}", dir.display()),
+            Err(e) => self.status = format!("No se pudo abrir Terminal: {e}"),
+        }
+    }
+
     fn save_active(&mut self) {
         let doc = &mut self.docs[self.active];
         let result = if doc.path.is_some() {
@@ -136,6 +159,9 @@ impl MocaEditor {
         if ctx.input_mut(|i| i.consume_shortcut(&FIND)) {
             self.search.open = !self.search.open;
         }
+        if ctx.input_mut(|i| i.consume_shortcut(&OPEN_TERMINAL)) {
+            self.open_terminal();
+        }
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
@@ -162,6 +188,9 @@ impl MocaEditor {
                 }
                 if ui.button("Buscar  ⌘F").clicked() {
                     self.search.open = !self.search.open;
+                }
+                if ui.button("Abrir terminal  ⌃`").clicked() {
+                    self.open_terminal();
                 }
             });
         });
