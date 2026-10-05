@@ -37,8 +37,12 @@ pub fn list_dir(dir: &Path) -> Vec<Entry> {
         if entry.depth() == 0 {
             continue;
         }
-        let Some(file_type) = entry.file_type() else { continue };
-        let Some(name) = entry.path().file_name() else { continue };
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
+        let Some(name) = entry.path().file_name() else {
+            continue;
+        };
         out.push(Entry {
             path: entry.path().to_path_buf(),
             name: name.to_string_lossy().into_owned(),
@@ -47,9 +51,9 @@ pub fn list_dir(dir: &Path) -> Vec<Entry> {
     }
 
     out.sort_by(|a, b| {
-        b.is_dir.cmp(&a.is_dir).then_with(|| {
-            a.name.to_lowercase().cmp(&b.name.to_lowercase())
-        })
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     out
 }
@@ -99,10 +103,10 @@ impl FileTree {
             {
                 self.cache.clear();
             }
-            ui.label(
-                root.file_name()
-                    .map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().into_owned()),
-            );
+            ui.label(root.file_name().map_or_else(
+                || root.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            ));
         });
 
         let mut clicked: Option<PathBuf> = None;

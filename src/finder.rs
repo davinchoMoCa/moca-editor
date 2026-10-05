@@ -80,7 +80,8 @@ impl Finder {
             .collapsible(false)
             .movable(false)
             .anchor(egui::Align2::CENTER_TOP, [0.0, 60.0])
-            .default_width(500.0).min_width(500.0)
+            .default_width(500.0)
+            .min_width(500.0)
             .show(ctx, |ui| {
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut self.query)
@@ -101,20 +102,24 @@ impl Finder {
                 } else if results.is_empty() {
                     ui.weak("Sin resultados");
                 } else {
-                    egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
-                        for (row, (file_idx, indices)) in results.iter().enumerate() {
-                            let selected = row == self.selected;
-                            let job = highlight(ui, &self.files[*file_idx], indices);
-                            let row_resp = ui.selectable_label(selected, job);
-                            if row_resp.clicked() && let Some(path) = self.path_of(*file_idx) {
-                                chosen = Some(path);
-                                self.open = false;
+                    egui::ScrollArea::vertical()
+                        .max_height(400.0)
+                        .show(ui, |ui| {
+                            for (row, (file_idx, indices)) in results.iter().enumerate() {
+                                let selected = row == self.selected;
+                                let job = highlight(ui, &self.files[*file_idx], indices);
+                                let row_resp = ui.selectable_label(selected, job);
+                                if row_resp.clicked()
+                                    && let Some(path) = self.path_of(*file_idx)
+                                {
+                                    chosen = Some(path);
+                                    self.open = false;
+                                }
+                                if selected && scroll_to_selection {
+                                    row_resp.scroll_to_me(None);
+                                }
                             }
-                            if selected && scroll_to_selection {
-                                row_resp.scroll_to_me(None);
-                            }
-                        }
-                    });
+                        });
                 }
             });
 
@@ -135,7 +140,10 @@ fn index_files(root: &Path) -> Vec<String> {
         .hidden(false)
         .require_git(false)
         .filter_entry(|e| {
-            !matches!(e.file_name().to_str(), Some(".git" | "target" | "node_modules"))
+            !matches!(
+                e.file_name().to_str(),
+                Some(".git" | "target" | "node_modules")
+            )
         })
         .build()
         .filter_map(|entry| entry.ok())
@@ -218,10 +226,7 @@ mod tests {
     #[test]
     fn consulta_vacia_devuelve_los_primeros_archivos() {
         let res = filter(&files(), "", 3);
-        assert_eq!(
-            res,
-            vec![(0, Vec::new()), (1, Vec::new()), (2, Vec::new())]
-        );
+        assert_eq!(res, vec![(0, Vec::new()), (1, Vec::new()), (2, Vec::new())]);
     }
 
     #[test]

@@ -15,6 +15,10 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Moca Editor",
         options,
-        Box::new(|_cc| Ok(Box::new(app::MocaEditor::from_args(std::env::args().skip(1))))),
+        Box::new(|_cc| {
+            Ok(Box::new(app::MocaEditor::from_args(
+                std::env::args().skip(1),
+            )))
+        }),
     )
 }

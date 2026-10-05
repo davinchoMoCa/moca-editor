@@ -1,10 +1,22 @@
 use crate::document::Document;
 use egui::text::{ByteIndex, CCursor, CCursorRange, LayoutJob, LayoutSection};
-use egui_extras::syntax_highlighting::{highlight, CodeTheme};
+use egui_extras::syntax_highlighting::{CodeTheme, highlight};
 use std::ops::Range;
 
 /// Tamaño de fuente del editor, compartido por el texto y los números de línea.
 const FONT_SIZE: f32 = 14.0;
+
+/// Fondo del área de código (Monokai): gutter y texto comparten el mismo fondo,
+/// sin caja ni borde alrededor del texto.
+pub const BG: egui::Color32 = egui::Color32::from_rgb(0x27, 0x28, 0x22);
+/// Números de línea del gutter, líneas inactivas.
+pub const GUTTER_FG: egui::Color32 = egui::Color32::from_rgb(0x75, 0x71, 0x5E);
+/// Número de línea de la fila donde está el cursor.
+pub const GUTTER_FG_ACTIVE: egui::Color32 = egui::Color32::from_rgb(0xF8, 0xF8, 0xF2);
+/// Resaltado de la línea actual (se pinta debajo del texto).
+pub const LINE_HL: egui::Color32 = egui::Color32::from_rgb(0x3E, 0x3D, 0x32);
+/// Fondo de la barra de pestañas.
+pub const TAB_BAR_BG: egui::Color32 = egui::Color32::from_rgb(0x1E, 0x1F, 0x1C);
 
 /// Fondo de los matches de búsqueda (amarillo tenue).
 const MATCH_BG: egui::Color32 = egui::Color32::from_rgba_unmultiplied_const(255, 220, 0, 60);
@@ -21,12 +33,11 @@ pub fn show(
     matches: &[Range<usize>],
     current_match: Option<usize>,
 ) {
+    // Fondo Monokai para toda el área, sin borde ni caja alrededor del texto.
+    ui.painter().rect_filled(ui.max_rect(), 0.0, BG);
+
     let lang = doc.extension();
-    let theme = if ui.visuals().dark_mode {
-        CodeTheme::dark(FONT_SIZE)
-    } else {
-        CodeTheme::light(FONT_SIZE)
-    };
+    let theme = CodeTheme::dark(FONT_SIZE);
     let font_id = egui::FontId::monospace(FONT_SIZE);
 
     // Altura visible antes de entrar al ScrollArea: adentro el ui entrega todo
@@ -49,17 +60,20 @@ pub fn show(
                     .layout_no_wrap("0".repeat(digits), font_id.clone(), egui::Color32::WHITE)
                     .size()
                     .x
-                    + 8.0;
+                    + 12.0;
                 let gutter_rect = ui
                     .allocate_exact_size(egui::vec2(gutter_width, 1.0), egui::Sense::hover())
                     .0;
 
+                // Reservamos el shape de la línea actual ANTES de pintar el
+                // gutter, para que el rect empiece en el borde izquierdo del
+                // gutter y quede debajo del texto (y de los números).
+                let hl_idx = ui.painter().add(egui::Shape::Noop);
+
                 // --- TextEdit con resaltado de sintaxis y de búsqueda ---
                 // El layouter usa `buf` (el texto que le pasa el TextEdit), no
                 // `doc.text`, para no pelear el préstamo mutable del buffer.
-                let mut layouter = |ui: &egui::Ui,
-                                    buf: &dyn egui::TextBuffer,
-                                    _wrap_width: f32| {
+                let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap_width: f32| {
                     let mut job = highlight(ui.ctx(), ui.style(), &theme, buf.as_str(), &lang);
                     apply_highlights(&mut job, matches, current_match);
                     // Sin wrap: las líneas largas ensanchan el contenido y
@@ -76,7 +90,23 @@ pub fn show(
                     .desired_rows(visible_rows)
                     .lock_focus(true)
                     .layouter(&mut layouter)
+                    .frame(egui::Frame::NONE)
+                    .margin(egui::Margin::symmetric(8, 0))
                     .show(ui);
+
+                // --- Línea actual resaltada (debajo del texto) ---
+                if let Some(range) = output.cursor_range {
+                    let row = output
+                        .galley
+                        .pos_from_cursor(range.primary)
+                        .translate(output.galley_pos.to_vec2());
+                    let full = egui::Rect::from_min_max(
+                        egui::pos2(ui.max_rect().left(), row.top()),
+                        egui::pos2(ui.max_rect().right() + 10_000.0, row.bottom()),
+                    );
+                    ui.painter()
+                        .set(hl_idx, egui::Shape::rect_filled(full, 0.0, LINE_HL));
+                }
 
                 // `doc.text` puede haber cambiado dentro de `show` (tecleo),
                 // así que los números se calculan sobre el texto final.
@@ -117,7 +147,9 @@ fn char_index(text: &str, byte_index: usize) -> Option<usize> {
 }
 
 /// Pinta los números de línea, alineados con las filas del galley del TextEdit
-/// (misma fuente, mismo alto de fila).
+/// (misma fuente, mismo alto de fila). El número de la línea donde está el
+/// cursor se pinta claro; el resto, tenue. El gutter comparte el fondo del
+/// editor (`BG`), sin línea separadora.
 fn paint_line_numbers(
     ui: &egui::Ui,
     text: &str,
@@ -125,20 +157,29 @@ fn paint_line_numbers(
     font_id: egui::FontId,
     right_x: f32,
 ) {
-    let color = ui.visuals().weak_text_color();
     let painter = ui.painter();
+    // Fila (y, en coords del galley) del cursor primario.
+    let cursor_row_y = output
+        .cursor_range
+        .map(|range| output.galley.pos_from_cursor(range.primary).min.y);
 
     for (i, char_start) in line_start_chars(text).into_iter().enumerate() {
         // Rect (de alto una fila) del inicio de la línea, en coordenadas del
         // galley; se pasa a pantalla con `galley_pos`.
         let row_rect = output.galley.pos_from_cursor(CCursor::new(char_start));
-        let pos = egui::pos2(right_x - 4.0, row_rect.min.y + output.galley_pos.y);
+        let is_active = cursor_row_y.is_some_and(|y| (row_rect.min.y - y).abs() < 0.5);
+        // 12 px de espacio a la derecha de los números.
+        let pos = egui::pos2(right_x - 12.0, row_rect.min.y + output.galley_pos.y);
         painter.text(
             pos,
             egui::Align2::RIGHT_TOP,
             (i + 1).to_string(),
             font_id.clone(),
-            color,
+            if is_active {
+                GUTTER_FG_ACTIVE
+            } else {
+                GUTTER_FG
+            },
         );
     }
 }
@@ -163,14 +204,16 @@ fn reveal_current_match(
     if last == current_match {
         return; // no cambió
     }
-    ui.ctx().data_mut(|d| d.insert_temp(last_key, current_match));
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(last_key, current_match));
 
     let Some(range) = current_match.and_then(|i| matches.get(i)) else {
         return;
     };
-    let (Some(start_char), Some(end_char)) =
-        (char_index(&doc.text, range.start), char_index(&doc.text, range.end))
-    else {
+    let (Some(start_char), Some(end_char)) = (
+        char_index(&doc.text, range.start),
+        char_index(&doc.text, range.end),
+    ) else {
         return; // el texto cambió y el rango quedó desalineado; el próximo frame lo corrige
     };
 
@@ -338,9 +381,9 @@ mod tests {
             bounds(&job),
             vec![
                 (0, 5, egui::Color32::TRANSPARENT),
-                (5, 10, MATCH_BG),                   // match dentro de la sección 5..11
+                (5, 10, MATCH_BG), // match dentro de la sección 5..11
                 (10, 11, egui::Color32::TRANSPARENT), // resto de esa sección
-                (11, 16, CURRENT_MATCH_BG),           // match actual, sección completa
+                (11, 16, CURRENT_MATCH_BG), // match actual, sección completa
             ]
         );
     }
@@ -369,7 +412,10 @@ mod tests {
     #[test]
     fn apply_highlights_casos_de_borde() {
         // Match pegado al límite de una sección y sección vacía conservada.
-        let mut job = make_job("abc\ndef", vec![section(0, 0), section(0, 4), section(4, 7)]);
+        let mut job = make_job(
+            "abc\ndef",
+            vec![section(0, 0), section(0, 4), section(4, 7)],
+        );
         apply_highlights(&mut job, &[4..7], Some(0));
 
         assert_full_coverage(&job);
@@ -385,18 +431,12 @@ mod tests {
         // Rango fuera del texto: no cambia nada.
         let mut job2 = make_job("abc", vec![section(0, 3)]);
         apply_highlights(&mut job2, &[10..20], None);
-        assert_eq!(
-            bounds(&job2),
-            vec![(0, 3, egui::Color32::TRANSPARENT)]
-        );
+        assert_eq!(bounds(&job2), vec![(0, 3, egui::Color32::TRANSPARENT)]);
 
         // Sin rangos: intacto.
         let mut job3 = make_job("abc", vec![section(0, 3)]);
         apply_highlights(&mut job3, &[], None);
-        assert_eq!(
-            bounds(&job3),
-            vec![(0, 3, egui::Color32::TRANSPARENT)]
-        );
+        assert_eq!(bounds(&job3), vec![(0, 3, egui::Color32::TRANSPARENT)]);
     }
 
     #[test]

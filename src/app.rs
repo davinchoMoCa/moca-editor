@@ -55,7 +55,11 @@ impl MocaEditor {
     }
 
     fn open_path(&mut self, path: &Path) {
-        if let Some(i) = self.docs.iter().position(|d| d.path.as_deref() == Some(path)) {
+        if let Some(i) = self
+            .docs
+            .iter()
+            .position(|d| d.path.as_deref() == Some(path))
+        {
             self.active = i;
             return;
         }
@@ -90,11 +94,12 @@ impl MocaEditor {
     /// Abre Terminal.app en la raíz del proyecto; si no hay carpeta abierta,
     /// en la carpeta del archivo activo.
     fn open_terminal(&mut self) {
-        let dir: Option<PathBuf> = self
-            .file_tree
-            .root()
-            .map(Path::to_path_buf)
-            .or_else(|| self.docs[self.active].path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)));
+        let dir: Option<PathBuf> = self.file_tree.root().map(Path::to_path_buf).or_else(|| {
+            self.docs[self.active]
+                .path
+                .as_ref()
+                .and_then(|p| p.parent().map(Path::to_path_buf))
+        });
         let Some(dir) = dir else {
             self.status = "Abre una carpeta primero (⇧⌘O)".to_string();
             return;
@@ -229,7 +234,11 @@ impl eframe::App for MocaEditor {
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 let doc = &self.docs[self.active];
-                ui.label(doc.path.as_ref().map_or("sin título".into(), |p| p.display().to_string()));
+                ui.label(
+                    doc.path
+                        .as_ref()
+                        .map_or("sin título".into(), |p| p.display().to_string()),
+                );
                 ui.separator();
                 ui.label(doc.extension());
                 if !self.status.is_empty() {
@@ -250,18 +259,24 @@ impl eframe::App for MocaEditor {
                 });
             });
 
-        egui::CentralPanel::default().show(ui, |ui| {
-            self.tab_bar(ui);
-            ui.separator();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(editor::BG))
+            .show(ui, |ui| {
+                egui::Frame::NONE
+                    .fill(editor::TAB_BAR_BG)
+                    .inner_margin(egui::Margin::symmetric(6, 4))
+                    .show(ui, |ui| {
+                        self.tab_bar(ui);
+                    });
 
-            let doc = &mut self.docs[self.active];
-            let matches = if self.search.open {
-                self.search.ui(ui, &mut doc.text)
-            } else {
-                Vec::new()
-            };
-            editor::show(ui, doc, &matches, self.search.current);
-        });
+                let doc = &mut self.docs[self.active];
+                let matches = if self.search.open {
+                    self.search.ui(ui, &mut doc.text)
+                } else {
+                    Vec::new()
+                };
+                editor::show(ui, doc, &matches, self.search.current);
+            });
 
         if let Some(path) = self.finder.ui(&ctx) {
             self.open_path(&path);
