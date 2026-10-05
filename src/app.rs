@@ -38,6 +38,14 @@ impl Default for MocaEditor {
     }
 }
 
+fn menu_item(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
+    let mut btn = egui::Button::new(label).min_size(egui::vec2(220.0, 32.0));
+    if !shortcut.is_empty() {
+        btn = btn.shortcut_text(shortcut);
+    }
+    ui.add(btn).clicked()
+}
+
 impl MocaEditor {
     /// `moca-editor [carpeta|archivo]...`: las carpetas se abren en el árbol, los archivos en pestañas.
     pub fn from_args(args: impl Iterator<Item = String>) -> Self {
@@ -170,36 +178,48 @@ impl MocaEditor {
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        ui.style_mut().visuals.menu_corner_radius = egui::CornerRadius::same(4);
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Archivo", |ui| {
-                if ui.button("Nuevo  ⌘N").clicked() {
+                ui.set_min_width(220.0);
+                ui.spacing_mut().button_padding = egui::vec2(12.0, 8.0);
+                ui.spacing_mut().item_spacing.y = 0.0;
+
+                if menu_item(ui, "Nuevo", "⌘N") {
                     self.docs.push(Document::new_empty());
                     self.active = self.docs.len() - 1;
                 }
-                if ui.button("Abrir archivo…  ⌘O").clicked() {
+                ui.separator();
+                if menu_item(ui, "Abrir archivo…", "⌘O") {
                     self.open_file_dialog();
                 }
-                if ui.button("Abrir carpeta…  ⇧⌘O").clicked() {
+                if menu_item(ui, "Abrir carpeta…", "⇧⌘O") {
                     self.open_folder_dialog();
                 }
                 if self.file_tree.root().is_some() {
-                    if ui.button("Cerrar carpeta").clicked() {
+                    if menu_item(ui, "Cerrar carpeta", "") {
                         self.file_tree = FileTree::default();
                     }
                 }
-                if ui.button("Guardar  ⌘S").clicked() {
+                ui.separator();
+                if menu_item(ui, "Guardar", "⌘S") {
                     self.save_active();
                 }
             });
             ui.menu_button("Ir", |ui| {
-                if ui.button("Abrir rápido…  ⌘P").clicked() {
+                ui.set_min_width(220.0);
+                ui.spacing_mut().button_padding = egui::vec2(12.0, 8.0);
+                ui.spacing_mut().item_spacing.y = 0.0;
+
+                if menu_item(ui, "Abrir rápido…", "⌘P") {
                     let root: Option<PathBuf> = self.file_tree.root().map(Path::to_path_buf);
                     self.finder.toggle(root.as_deref());
                 }
-                if ui.button("Buscar  ⌘F").clicked() {
+                if menu_item(ui, "Buscar", "⌘F") {
                     self.search.open = !self.search.open;
                 }
-                if ui.button("Abrir terminal  ⌃`").clicked() {
+                ui.separator();
+                if menu_item(ui, "Abrir terminal", "⌃`") {
                     self.open_terminal();
                 }
             });
