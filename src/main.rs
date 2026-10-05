@@ -10,14 +10,23 @@ fn install_fonts(ctx: &egui::Context) {
     if let Ok(bytes) = std::fs::read("/System/Library/Fonts/Apple Symbols.ttf") {
         fonts.font_data.insert(
             "apple_symbols".to_owned(),
-            std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes).tweak(egui::FontTweak {
+                scale: 1.2,
+                y_offset_factor: 0.05,
+                ..Default::default()
+            })),
         );
         for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-            fonts
-                .families
-                .entry(family)
-                .or_default()
-                .push("apple_symbols".to_owned());
+            if let Some(list) = fonts.families.get_mut(&family) {
+                let i = 1.min(list.len());
+                list.insert(i, "apple_symbols".to_owned());
+            } else {
+                fonts
+                    .families
+                    .entry(family)
+                    .or_default()
+                    .push("apple_symbols".to_owned());
+            }
         }
     }
     ctx.set_fonts(fonts);
