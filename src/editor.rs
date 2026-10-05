@@ -24,6 +24,15 @@ const MATCH_BG: egui::Color32 = egui::Color32::from_rgba_unmultiplied_const(255,
 const CURRENT_MATCH_BG: egui::Color32 =
     egui::Color32::from_rgba_unmultiplied_const(255, 140, 0, 120);
 
+/// Por encima de este tamaño (bytes) solo se resalta la sintaxis de una ventana
+/// de líneas alrededor de lo visible: syntect sobre el archivo completo tarda
+/// segundos y se repetiría con cada tecla.
+const FULL_HIGHLIGHT_LIMIT: usize = 256 * 1024;
+/// Granularidad de la ventana de resaltado, para que no cambie con cada pixel de scroll.
+const CHUNK_LINES: usize = 400;
+/// Color del texto fuera de la ventana resaltada.
+const PLAIN_FG: egui::Color32 = egui::Color32::from_rgb(0xF8, 0xF8, 0xF2);
+
 /// Dibuja el área de edición del documento activo: números de línea a la izquierda
 /// y el texto con resaltado de sintaxis y de búsqueda. `matches` son rangos (en
 /// bytes) a resaltar por la búsqueda; `current_match` es el seleccionado.
@@ -55,6 +64,7 @@ pub fn show(
                 // posición real del galley del TextEdit para que alineen
                 // exactamente con las líneas del texto.
                 let digits = line_count(&doc.text).to_string().len();
+                let first_line_id = egui::Id::new("moca_first_visible_line");
                 let gutter_width = ui
                     .painter()
                     .layout_no_wrap("0".repeat(digits), font_id.clone(), egui::Color32::WHITE)
@@ -75,7 +85,25 @@ pub fn show(
                 // El layouter usa `buf` (el texto que le pasa el TextEdit), no
                 // `doc.text`, para no pelear el préstamo mutable del buffer.
                 let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap_width: f32| {
-                    let mut job = highlight(ui.ctx(), ui.style(), &theme, buf.as_str(), &lang);
+                    let text = buf.as_str();
+                    let mut job = if text.len() <= FULL_HIGHLIGHT_LIMIT {
+                        highlight(ui.ctx(), ui.style(), &theme, text, &lang)
+                    } else {
+                        // Ventana alrededor de la primera línea visible del frame
+                        // anterior; `highlight` la memoiza mientras no cambie.
+                        let first = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<usize>(first_line_id))
+                            .unwrap_or(0);
+                        let starts = line_byte_starts(text);
+                        let lines = highlight_window(first, starts.len());
+                        let end = starts.get(lines.end).copied().unwrap_or(text.len());
+                        let bytes = starts.get(lines.start).copied().unwrap_or(end)..end;
+                        let sub =
+                            highlight(ui.ctx(), ui.style(), &theme, &text[bytes.clone()], &lang);
+                        let plain = egui::text::TextFormat::simple(font_id.clone(), PLAIN_FG);
+                        compose_window_job(text, bytes, sub, plain)
+                    };
                     apply_highlights(&mut job, matches, current_match);
                     // Sin wrap: las líneas largas ensanchan el contenido y
                     // activan el scroll horizontal. (El wrap_width que pasa el
@@ -114,9 +142,25 @@ pub fn show(
                         .set(hl_idx, egui::Shape::rect_filled(full, 0.0, LINE_HL));
                 }
 
+                // Primera línea visible, para la ventana de resaltado y los números.
+                let first_visible = ((ui.clip_rect().top() - output.galley_pos.y) / line_height)
+                    .floor()
+                    .max(0.0) as usize;
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(first_line_id, first_visible));
+
                 // `doc.text` puede haber cambiado dentro de `show` (tecleo),
                 // así que los números se calculan sobre el texto final.
-                paint_line_numbers(ui, &doc.text, &output, font_id, gutter_rect.right());
+                let visible_rows = (ui.clip_rect().height() / line_height).ceil() as usize + 2;
+                paint_line_numbers(
+                    ui,
+                    line_count(&doc.text),
+                    first_visible..first_visible + visible_rows,
+                    &output,
+                    font_id,
+                    line_height,
+                    gutter_rect.right(),
+                );
 
                 // Cuando cambia el match actual, lo selecciona y lo centra.
                 reveal_current_match(ui, doc, matches, current_match, &output);
@@ -124,26 +168,66 @@ pub fn show(
         });
 }
 
-/// Cantidad de líneas del texto: `lines()` + 1 si termina en '\n' (mínimo 1).
+/// Cantidad de líneas del texto (una más que los '\n'; mínimo 1).
 fn line_count(text: &str) -> usize {
-    let mut count = text.lines().count();
-    if text.ends_with('\n') {
-        count += 1;
-    }
-    count.max(1)
+    text.bytes().filter(|&b| b == b'\n').count() + 1
 }
 
-/// Índice (en caracteres) del primer carácter de cada línea.
-fn line_start_chars(text: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    let mut chars = 0;
-    for ch in text.chars() {
-        chars += 1;
-        if ch == '\n' {
-            starts.push(chars);
-        }
+/// Byte donde empieza cada línea: 0 y la posición después de cada '\n'.
+fn line_byte_starts(text: &str) -> Vec<usize> {
+    std::iter::once(0)
+        .chain(
+            text.bytes()
+                .enumerate()
+                .filter(|&(_, b)| b == b'\n')
+                .map(|(i, _)| i + 1),
+        )
+        .collect()
+}
+
+/// Rango de líneas a resaltar alrededor de `first_visible_line`: el bloque de
+/// `CHUNK_LINES` que la contiene más uno antes y uno después.
+fn highlight_window(first_visible_line: usize, total_lines: usize) -> Range<usize> {
+    let chunk = first_visible_line / CHUNK_LINES;
+    let start = chunk.saturating_sub(1) * CHUNK_LINES;
+    let end = ((chunk + 2) * CHUNK_LINES).min(total_lines);
+    start.min(end)..end
+}
+
+/// Arma el job del texto completo: `sub` (el resaltado de `&full_text[window]`)
+/// desplazado a su lugar, y texto plano antes y después de la ventana.
+fn compose_window_job(
+    full_text: &str,
+    window: Range<usize>,
+    sub: LayoutJob,
+    plain: egui::text::TextFormat,
+) -> LayoutJob {
+    let mut job = LayoutJob {
+        text: full_text.to_owned(),
+        ..Default::default()
+    };
+    let plain_section = |range: Range<usize>| LayoutSection {
+        leading_space: 0.0,
+        byte_range: ByteIndex(range.start)..ByteIndex(range.end),
+        format: plain.clone(),
+    };
+    if window.start > 0 {
+        job.sections.push(plain_section(0..window.start));
     }
-    starts
+    for section in sub.sections {
+        let start = usize::from(section.byte_range.start) + window.start;
+        let end = usize::from(section.byte_range.end) + window.start;
+        job.sections.push(LayoutSection {
+            byte_range: ByteIndex(start)..ByteIndex(end),
+            ..section
+        });
+    }
+    if window.end < full_text.len() {
+        job.sections
+            .push(plain_section(window.end..full_text.len()));
+    }
+    job.wrap.max_width = f32::INFINITY;
+    job
 }
 
 /// Índice en CARACTERES del byte `byte_index`, o `None` si no cae en un límite.
@@ -152,36 +236,33 @@ fn char_index(text: &str, byte_index: usize) -> Option<usize> {
         .then(|| text[..byte_index].chars().count())
 }
 
-/// Pinta los números de línea, alineados con las filas del galley del TextEdit
-/// (misma fuente, mismo alto de fila). El número de la línea donde está el
-/// cursor se pinta claro; el resto, tenue. El gutter comparte el fondo del
-/// editor (`BG`), sin línea separadora.
+/// Pinta los números de las líneas `visible` (acotadas a `total_lines`). Sin wrap
+/// hay una fila por línea, así que la posición sale de multiplicar por el alto de
+/// fila: nada de recorrer el galley por cada línea. El número de la línea del
+/// cursor se pinta claro; el resto, tenue.
 fn paint_line_numbers(
     ui: &egui::Ui,
-    text: &str,
+    total_lines: usize,
+    visible: Range<usize>,
     output: &egui::widgets::text_edit::TextEditOutput,
     font_id: egui::FontId,
+    line_height: f32,
     right_x: f32,
 ) {
     let painter = ui.painter();
-    // Fila (y, en coords del galley) del cursor primario.
-    let cursor_row_y = output
-        .cursor_range
-        .map(|range| output.galley.pos_from_cursor(range.primary).min.y);
+    let active_line = output.cursor_range.map(|range| {
+        (output.galley.pos_from_cursor(range.primary).min.y / line_height).round() as usize
+    });
 
-    for (i, char_start) in line_start_chars(text).into_iter().enumerate() {
-        // Rect (de alto una fila) del inicio de la línea, en coordenadas del
-        // galley; se pasa a pantalla con `galley_pos`.
-        let row_rect = output.galley.pos_from_cursor(CCursor::new(char_start));
-        let is_active = cursor_row_y.is_some_and(|y| (row_rect.min.y - y).abs() < 0.5);
+    for i in visible.start.min(total_lines)..visible.end.min(total_lines) {
         // 12 px de espacio a la derecha de los números.
-        let pos = egui::pos2(right_x - 12.0, row_rect.min.y + output.galley_pos.y);
+        let pos = egui::pos2(right_x - 12.0, output.galley_pos.y + i as f32 * line_height);
         painter.text(
             pos,
             egui::Align2::RIGHT_TOP,
             (i + 1).to_string(),
             font_id.clone(),
-            if is_active {
+            if active_line == Some(i) {
                 GUTTER_FG_ACTIVE
             } else {
                 GUTTER_FG
@@ -271,7 +352,8 @@ fn apply_highlights(job: &mut LayoutJob, ranges: &[Range<usize>], current: Optio
 
         // Cortes dentro de la sección: sus límites más los de cada rango que la cruza.
         let mut cuts = vec![start, end];
-        for range in ranges {
+        let first = ranges.partition_point(|r| r.end <= start);
+        for range in ranges[first..].iter().take_while(|r| r.start < end) {
             let cut_start = range.start.clamp(start, end);
             let cut_end = range.end.clamp(start, end);
             if cut_start < cut_end {
@@ -316,9 +398,12 @@ fn background_for(
     {
         return Some(CURRENT_MATCH_BG);
     }
+    // Los rangos vienen ordenados y sin solapes: el único candidato es el
+    // primero que termina después de `sub_start`.
+    let i = ranges.partition_point(|r| r.end <= sub_start);
     ranges
-        .iter()
-        .any(|r| sub_start >= r.start && sub_end <= r.end)
+        .get(i)
+        .is_some_and(|r| sub_start >= r.start && sub_end <= r.end)
         .then_some(MATCH_BG)
 }
 
@@ -453,13 +538,53 @@ mod tests {
         assert_eq!(line_count("hola\nmundo"), 2);
         assert_eq!(line_count("a\n\n\nb"), 4);
 
-        // line_start_chars siempre coincide con line_count.
-        assert_eq!(line_start_chars(""), vec![0]);
-        assert_eq!(line_start_chars("hola"), vec![0]);
-        assert_eq!(line_start_chars("hola\n"), vec![0, 5]);
-        assert_eq!(line_start_chars("hola\nmundo"), vec![0, 5]);
-        assert_eq!(line_start_chars("a\n\n\nb"), vec![0, 2, 3, 4]);
-        assert_eq!(line_start_chars("a\nb").len(), line_count("a\nb"));
-        assert_eq!(line_start_chars("hola\n").len(), line_count("hola\n"));
+        assert_eq!(line_byte_starts(""), vec![0]);
+        assert_eq!(line_byte_starts("a\nbc\n"), vec![0, 2, 5]);
+        for t in ["", "hola", "hola\n", "a\n\n\nb"] {
+            assert_eq!(line_byte_starts(t).len(), line_count(t));
+        }
+    }
+
+    #[test]
+    fn ventana_de_resaltado() {
+        assert_eq!(highlight_window(0, 10_000), 0..800);
+        assert_eq!(highlight_window(1000, 10_000), 400..1600);
+        assert_eq!(highlight_window(9_900, 10_000).end, 10_000);
+        assert_eq!(highlight_window(0, 0), 0..0);
+        assert_eq!(highlight_window(0, 50), 0..50);
+    }
+
+    #[test]
+    fn compose_window_job_cubre_todo_el_texto() {
+        let text = "aaa\nbbb\nccc\n";
+        let window = 4..8; // "bbb\n"
+        let sub = make_job("bbb\n", vec![section(0, 2), section(2, 4)]);
+        let plain = TextFormat::simple(egui::FontId::monospace(14.0), PLAIN_FG);
+        let job = compose_window_job(text, window, sub, plain);
+
+        assert_full_coverage(&job);
+        let ranges: Vec<_> = bounds(&job).iter().map(|&(a, b, _)| (a, b)).collect();
+        assert_eq!(ranges, vec![(0, 4), (4, 6), (6, 8), (8, 12)]);
+        assert_eq!(job.sections[0].format.color, PLAIN_FG);
+        assert_eq!(job.sections[3].format.color, PLAIN_FG);
+    }
+
+    #[test]
+    fn apply_highlights_muchos_rangos_es_lineal() {
+        // 10.000 secciones de 10 bytes y un match de 3 bytes en cada una.
+        let text = "x".repeat(100_000);
+        let sections = (0..10_000).map(|i| section(i * 10, i * 10 + 10)).collect();
+        let ranges: Vec<_> = (0..10_000).map(|i| i * 10 + 2..i * 10 + 5).collect();
+        let mut job = make_job(&text, sections);
+
+        let t = std::time::Instant::now();
+        apply_highlights(&mut job, &ranges, Some(5_000));
+        assert!(
+            t.elapsed().as_millis() < 500,
+            "apply_highlights tardó demasiado"
+        );
+
+        assert_full_coverage(&job);
+        assert_eq!(job.sections.len(), 30_000);
     }
 }
