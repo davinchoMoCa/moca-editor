@@ -38,6 +38,21 @@ impl Default for MocaEditor {
 }
 
 impl MocaEditor {
+    /// `moca-editor [carpeta|archivo]...`: las carpetas se abren en el árbol, los archivos en pestañas.
+    pub fn from_args(args: impl Iterator<Item = String>) -> Self {
+        let mut app = Self::default();
+        for arg in args {
+            let path = PathBuf::from(arg);
+            let path = path.canonicalize().unwrap_or(path);
+            if path.is_dir() {
+                app.file_tree.set_root(path);
+            } else {
+                app.open_path(&path);
+            }
+        }
+        app
+    }
+
     fn open_path(&mut self, path: &Path) {
         if let Some(i) = self.docs.iter().position(|d| d.path.as_deref() == Some(path)) {
             self.active = i;
