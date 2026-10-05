@@ -182,6 +182,11 @@ impl MocaEditor {
                 if ui.button("Abrir carpeta…  ⇧⌘O").clicked() {
                     self.open_folder_dialog();
                 }
+                if self.file_tree.root().is_some() {
+                    if ui.button("Cerrar carpeta").clicked() {
+                        self.file_tree = FileTree::default();
+                    }
+                }
                 if ui.button("Guardar  ⌘S").clicked() {
                     self.save_active();
                 }
@@ -248,16 +253,18 @@ impl eframe::App for MocaEditor {
             });
         });
 
-        egui::Panel::left("files")
-            .resizable(true)
-            .default_size(220.0)
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    if let Some(path) = self.file_tree.ui(ui) {
-                        self.open_path(&path);
-                    }
+        if self.file_tree.root().is_some() {
+            egui::Panel::left("files")
+                .resizable(true)
+                .default_size(220.0)
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        if let Some(path) = self.file_tree.ui(ui) {
+                            self.open_path(&path);
+                        }
+                    });
                 });
-            });
+        }
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(editor::BG))
