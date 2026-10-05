@@ -3,6 +3,8 @@ mod document;
 mod editor;
 mod file_tree;
 mod finder;
+#[allow(dead_code)]
+mod icons;
 mod search;
 
 fn install_fonts(ctx: &egui::Context) {
@@ -11,16 +13,36 @@ fn install_fonts(ctx: &egui::Context) {
         "/System/Library/Fonts/SFNS.ttf",
         "/System/Library/Fonts/Apple Symbols.ttf",
     ];
+
+    fonts.font_data.insert(
+        "material_symbols".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../assets/MaterialSymbolsOutlined-subset.ttf"
+        ))),
+    );
+
     if let Some(bytes) = candidates.iter().find_map(|p| std::fs::read(p).ok()) {
         fonts.font_data.insert(
             "symbols".to_owned(),
             std::sync::Arc::new(egui::FontData::from_owned(bytes)),
         );
-        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-            if let Some(list) = fonts.families.get_mut(&family) {
-                let i = 1.min(list.len());
-                list.insert(i, "symbols".to_owned());
-            } else {
+    }
+
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        if let Some(list) = fonts.families.get_mut(&family) {
+            // Material primero: sus íconos viven en la zona de uso privado de Unicode,
+            // que otras fuentes (SF, emoji de egui) también ocupan.
+            if fonts.font_data.contains_key("symbols") {
+                list.insert(1.min(list.len()), "symbols".to_owned());
+            }
+            list.insert(1.min(list.len()), "material_symbols".to_owned());
+        } else {
+            fonts
+                .families
+                .entry(family.clone())
+                .or_default()
+                .push("material_symbols".to_owned());
+            if fonts.font_data.contains_key("symbols") {
                 fonts
                     .families
                     .entry(family)

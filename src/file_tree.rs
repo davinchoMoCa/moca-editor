@@ -97,7 +97,7 @@ impl FileTree {
         // Encabezado con el nombre de la carpeta raíz y botón de refresco.
         ui.horizontal(|ui| {
             if ui
-                .small_button("⟳")
+                .small_button(egui::RichText::new(crate::icons::REFRESH).size(18.0))
                 .on_hover_text("Recargar árbol de archivos")
                 .clicked()
             {

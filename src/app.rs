@@ -38,8 +38,14 @@ impl Default for MocaEditor {
     }
 }
 
-fn menu_item(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
-    let mut btn = egui::Button::new(label).min_size(egui::vec2(220.0, 32.0));
+fn menu_item(ui: &mut egui::Ui, icon: &str, label: &str, shortcut: &str) -> bool {
+    let mut btn = egui::Button::new((
+        egui::RichText::new(icon)
+            .size(20.0)
+            .color(ui.visuals().weak_text_color()),
+        label,
+    ))
+    .min_size(egui::vec2(220.0, 32.0));
     if !shortcut.is_empty() {
         btn = btn.shortcut_text(shortcut);
     }
@@ -185,24 +191,24 @@ impl MocaEditor {
                 ui.spacing_mut().button_padding = egui::vec2(12.0, 8.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
 
-                if menu_item(ui, "Nuevo", "⌘N") {
+                if menu_item(ui, crate::icons::NOTE_ADD, "Nuevo", "⌘N") {
                     self.docs.push(Document::new_empty());
                     self.active = self.docs.len() - 1;
                 }
                 ui.separator();
-                if menu_item(ui, "Abrir archivo…", "⌘O") {
+                if menu_item(ui, crate::icons::FILE_OPEN, "Abrir archivo…", "⌘O") {
                     self.open_file_dialog();
                 }
-                if menu_item(ui, "Abrir carpeta…", "⇧⌘O") {
+                if menu_item(ui, crate::icons::FOLDER_OPEN, "Abrir carpeta…", "⇧⌘O") {
                     self.open_folder_dialog();
                 }
                 if self.file_tree.root().is_some() {
-                    if menu_item(ui, "Cerrar carpeta", "") {
+                    if menu_item(ui, crate::icons::FOLDER_OFF, "Cerrar carpeta", "") {
                         self.file_tree = FileTree::default();
                     }
                 }
                 ui.separator();
-                if menu_item(ui, "Guardar", "⌘S") {
+                if menu_item(ui, crate::icons::SAVE, "Guardar", "⌘S") {
                     self.save_active();
                 }
             });
@@ -211,15 +217,15 @@ impl MocaEditor {
                 ui.spacing_mut().button_padding = egui::vec2(12.0, 8.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
 
-                if menu_item(ui, "Abrir rápido…", "⌘P") {
+                if menu_item(ui, crate::icons::MANAGE_SEARCH, "Abrir rápido…", "⌘P") {
                     let root: Option<PathBuf> = self.file_tree.root().map(Path::to_path_buf);
                     self.finder.toggle(root.as_deref());
                 }
-                if menu_item(ui, "Buscar", "⌘F") {
+                if menu_item(ui, crate::icons::SEARCH, "Buscar", "⌘F") {
                     self.search.open = !self.search.open;
                 }
                 ui.separator();
-                if menu_item(ui, "Abrir terminal", "⌃`") {
+                if menu_item(ui, crate::icons::TERMINAL, "Abrir terminal", "⌃`") {
                     self.open_terminal();
                 }
             });
@@ -238,7 +244,10 @@ impl MocaEditor {
                 {
                     self.active = i;
                 }
-                if ui.small_button("×").clicked() {
+                if ui
+                    .small_button(egui::RichText::new(crate::icons::CLOSE).size(16.0))
+                    .clicked()
+                {
                     to_close = Some(i);
                 }
                 ui.separator();

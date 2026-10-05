@@ -48,10 +48,16 @@ impl SearchBar {
 
             // --- ◀ / ▶ ---
             let prev_clicked = ui
-                .add_enabled(!matches.is_empty(), egui::Button::new("◀"))
+                .add_enabled(
+                    !matches.is_empty(),
+                    egui::Button::new(egui::RichText::new(crate::icons::CHEVRON_LEFT).size(18.0)),
+                )
                 .clicked();
             let next_clicked = ui
-                .add_enabled(!matches.is_empty(), egui::Button::new("▶"))
+                .add_enabled(
+                    !matches.is_empty(),
+                    egui::Button::new(egui::RichText::new(crate::icons::CHEVRON_RIGHT).size(18.0)),
+                )
                 .clicked();
             let next = enter_next || next_clicked;
 
