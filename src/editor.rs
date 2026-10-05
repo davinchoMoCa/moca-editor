@@ -60,6 +60,7 @@ pub fn show(
                     .layout_no_wrap("0".repeat(digits), font_id.clone(), egui::Color32::WHITE)
                     .size()
                     .x
+                    + 16.0
                     + 12.0;
                 let gutter_rect = ui
                     .allocate_exact_size(egui::vec2(gutter_width, 1.0), egui::Sense::hover())
@@ -91,7 +92,12 @@ pub fn show(
                     .lock_focus(true)
                     .layouter(&mut layouter)
                     .frame(egui::Frame::NONE)
-                    .margin(egui::Margin::symmetric(8, 0))
+                    .margin(egui::Margin {
+                        left: 4,
+                        right: 16,
+                        top: 8,
+                        bottom: 8,
+                    })
                     .show(ui);
 
                 // --- Línea actual resaltada (debajo del texto) ---

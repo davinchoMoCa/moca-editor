@@ -209,6 +209,7 @@ impl MocaEditor {
     fn tab_bar(&mut self, ui: &mut egui::Ui) {
         let mut to_close = None;
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
             for (i, doc) in self.docs.iter().enumerate() {
                 let dot = if doc.is_dirty() { " ●" } else { "" };
                 if ui
@@ -231,32 +232,56 @@ impl MocaEditor {
 
 impl eframe::App for MocaEditor {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        {
+            let s = ui.style_mut();
+            s.spacing.item_spacing = egui::vec2(8.0, 4.0);
+            s.spacing.button_padding = egui::vec2(8.0, 4.0);
+            s.spacing.menu_margin = egui::Margin::same(8);
+        }
+
         let ctx = ui.ctx().clone();
         self.handle_shortcuts(&ctx);
 
-        egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
+        egui::Panel::top("menu")
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(egui::Margin::symmetric(12, 4)),
+            )
+            .show(ui, |ui| self.menu_bar(ui));
 
-        egui::Panel::bottom("status").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let doc = &self.docs[self.active];
-                ui.label(
-                    doc.path
-                        .as_ref()
-                        .map_or("sin título".into(), |p| p.display().to_string()),
-                );
-                ui.separator();
-                ui.label(doc.extension());
-                if !self.status.is_empty() {
+        egui::Panel::bottom("status")
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(egui::Margin::symmetric(12, 4)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let doc = &self.docs[self.active];
+                    ui.label(
+                        doc.path
+                            .as_ref()
+                            .map_or("sin título".into(), |p| p.display().to_string()),
+                    );
                     ui.separator();
-                    ui.label(&self.status);
-                }
+                    ui.label(doc.extension());
+                    if !self.status.is_empty() {
+                        ui.separator();
+                        ui.label(&self.status);
+                    }
+                });
             });
-        });
 
         if self.file_tree.root().is_some() {
             egui::Panel::left("files")
                 .resizable(true)
                 .default_size(220.0)
+                .frame(
+                    egui::Frame::NONE
+                        .fill(ui.visuals().panel_fill)
+                        .inner_margin(egui::Margin::symmetric(12, 8)),
+                )
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         if let Some(path) = self.file_tree.ui(ui) {
@@ -271,7 +296,7 @@ impl eframe::App for MocaEditor {
             .show(ui, |ui| {
                 egui::Frame::NONE
                     .fill(editor::TAB_BAR_BG)
-                    .inner_margin(egui::Margin::symmetric(6, 4))
+                    .inner_margin(egui::Margin::symmetric(12, 4))
                     .show(ui, |ui| {
                         self.tab_bar(ui);
                     });
