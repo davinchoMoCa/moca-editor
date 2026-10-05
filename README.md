@@ -15,6 +15,13 @@ cargo run --release -- [carpeta|archivo]...
 
 Sin argumentos abre como editor de texto plano.
 
+### Instalar como app (macOS)
+
+```bash
+scripts/bundle-macos.sh            # compila, arma "Moca Editor.app", la firma y la copia a /Applications
+scripts/bundle-macos.sh <identidad> # firmar con otro certificado (ver: security find-identity -v -p codesigning)
+```
+
 | Atajo | Acción |
 |---|---|
 | ⌘N / ⌘O / ⇧⌘O | Nuevo / abrir archivo / abrir carpeta |
@@ -24,8 +31,8 @@ Sin argumentos abre como editor de texto plano.
 
 ## Estado
 
-Prototipo en desarrollo. Pendiente: aviso de cambios sin guardar, empaquetado como `.app`,
-sangría automática.
+Prototipo en desarrollo. Pendiente: aviso de cambios sin guardar, abrir archivos con doble clic
+desde Finder, sangría automática.
 
 ## Créditos
 
