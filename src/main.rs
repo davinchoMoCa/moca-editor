@@ -7,25 +7,25 @@ mod search;
 
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    if let Ok(bytes) = std::fs::read("/System/Library/Fonts/Apple Symbols.ttf") {
+    let candidates = [
+        "/System/Library/Fonts/SFNS.ttf",
+        "/System/Library/Fonts/Apple Symbols.ttf",
+    ];
+    if let Some(bytes) = candidates.iter().find_map(|p| std::fs::read(p).ok()) {
         fonts.font_data.insert(
-            "apple_symbols".to_owned(),
-            std::sync::Arc::new(egui::FontData::from_owned(bytes).tweak(egui::FontTweak {
-                scale: 1.2,
-                y_offset_factor: 0.05,
-                ..Default::default()
-            })),
+            "symbols".to_owned(),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes)),
         );
         for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
             if let Some(list) = fonts.families.get_mut(&family) {
                 let i = 1.min(list.len());
-                list.insert(i, "apple_symbols".to_owned());
+                list.insert(i, "symbols".to_owned());
             } else {
                 fonts
                     .families
                     .entry(family)
                     .or_default()
-                    .push("apple_symbols".to_owned());
+                    .push("symbols".to_owned());
             }
         }
     }
